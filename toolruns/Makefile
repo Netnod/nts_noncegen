@@ -40,6 +40,7 @@ SIPHASH_SRC_PATH = ../../siphash/src/rtl
 SIPHASH_SRC = $(SIPHASH_SRC_PATH)/siphash_core.v
 
 TOP_SRC = ../src/rtl/nts_noncegen.v $(SIPHASH_SRC)
+TOP_TB_SRC = ../src/tb/tb_nts_noncegen.v
 
 CC = iverilog
 CC_FLAGS = -Wall
@@ -51,8 +52,8 @@ LINT_FLAGS = +1364-2001ext+ --lint-only  -Wall -Wno-fatal -Wno-DECLFILENAME
 all: top.sim
 
 
-top.sim: $(TOP_SRC)
-	$(CC) $(CC_FLAGS) -o top.sim $(TOP_SRC)
+top.sim: $(TOP_SRC) $(TOP_TB_SRC)
+	$(CC) $(CC_FLAGS) -o top.sim  $(TOP_TB_SRC) $(TOP_SRC)
 
 
 lint:  $(TOP_SRC)
