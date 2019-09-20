@@ -50,7 +50,39 @@ module tb_nts_noncegen();
 
   localparam TIMEOUT_CYCLES = 10000;
 
-  reg [127 : 0] testreg;
+
+  localparam ADDR_NAME0         = 8'h00;
+  localparam ADDR_NAME1         = 8'h01;
+  localparam ADDR_VERSION       = 8'h02;
+
+  localparam ADDR_CTRL          = 8'h08;
+  localparam CTRL_ENABLE_BIT    = 0;
+
+  localparam ADDR_STATUS        = 8'h09;
+  localparam STATUS_READY_BIT   = 0;
+
+  localparam ADDR_CONFIG        = 8'h0a;
+  localparam CONFIG_COMP_BIT0   = 0;
+  localparam CONFIG_COMP_BIT3   = 3;
+  localparam CONFIG_FINAL_BIT0  = 8;
+  localparam CONFIG_FINAL_BIT3  = 11;
+
+  localparam ADDR_KEY0          = 8'h10;
+  localparam ADDR_KEY1          = 8'h11;
+  localparam ADDR_KEY2          = 8'h12;
+  localparam ADDR_KEY3          = 8'h13;
+
+  localparam ADDR_LABEL         = 8'h20;
+
+  localparam ADDR_CTR0          = 8'h30;
+  localparam ADDR_CTR1          = 8'h31;
+
+  localparam ADDR_CONTEXT0      = 8'h40;
+  localparam ADDR_CONTEXT1      = 8'h41;
+  localparam ADDR_CONTEXT2      = 8'h42;
+  localparam ADDR_CONTEXT3      = 8'h43;
+  localparam ADDR_CONTEXT4      = 8'h44;
+  localparam ADDR_CONTEXT5      = 8'h45;
 
 
   //----------------------------------------------------------------
@@ -60,6 +92,8 @@ module tb_nts_noncegen();
   reg [31 : 0]  error_ctr;
   reg [31 : 0]  tc_ctr;
   reg           tc_correct;
+
+  reg [31 : 0]  read_data;
 
   reg           tb_debug;
   reg           tb_clk;
@@ -137,27 +171,42 @@ module tb_nts_noncegen();
       $display("\n");
       $display("cycle:  0x%016x", cycle_ctr);
       $display("Inputs and outputs:");
+      $display("cs: 0x%01x, we: 0x%01x, addr: 0x%02x",
+               dut_cs, dut_we, dut_address);
+      $display("read_data: 0x%08x, write_data: 0x%08x",
+               dut_read_data, dut_write_data);
+      $display("get_nonce: 0x%01x, nonce: 0x%016x",
+               dut_get_nonce, dut_nonce);
+      $display("ready: 0x%01x", dut_ready);
+      $display("");
+
+      $display("Internal state:");
+      $display("key0: 0x%08x, key1: 0x%08x, key2: 0x%08x, key3: 0x%08x",
+               dut.key[0], dut.key[1], dut.key[2], dut.key[3]);
+      $display("ctx0: 0x%08x, ctx1: 0x%08x, ctx2: 0x%08x, ctx3: 0x%08x",
+               dut.ctx[0], dut.ctx[1], dut.ctx[2], dut.ctx[3]);
+      $display("ctx4: 0x%08x, ctx5: 0x%08x", dut.ctx[4], dut.ctx[5]);
+      $display("ctr0: 0x%08x, ctr1: 0x%04x, label: 0x%08x",
+               dut.ctr0_reg, dut.ctr1_reg, dut.label_reg);
+      $display("mutate: 0x%08x", dut.mutate_reg);
+      $display("");
+
+      $display("SipHash:");
+      $display("ready: 0x%01x, init: 0x%01x, compress: 0x%01x, finalize: 0x%01x",
+               dut.siphash_ready, dut.siphash_initalize,
+               dut.siphash_compress, dut.siphash_finalize);
+      $display("key:  0x%032x", dut.siphash_key);
+      $display("mi:   0x%016x", dut.siphash_mi);
+      $display("word: 0x%032x", dut.siphash_word);
       $display("");
 
       $display("Control:");
+      $display("ctrl_reg: 0x%02x, ctrl_new: 0x%02x, ctrl_we: 0x%01x",
+               dut.noncegen_ctrl_reg, dut.noncegen_ctrl_new, dut.noncegen_ctrl_we);
+      $display("enable: 0x%01x", dut.enable_reg);
       $display("\n");
     end
   endtask // dump_dut_state
-
-
-  //----------------------------------------------------------------
-  // reset_dut()
-  //
-  // Toggle reset to put the DUT into a well known state.
-  //----------------------------------------------------------------
-  task reset_dut;
-    begin
-      $display("TB: Resetting dut.");
-      tb_reset = 1;
-      #(2 * CLK_PERIOD);
-      tb_reset = 0;
-    end
-  endtask // reset_dut
 
 
   //----------------------------------------------------------------
@@ -197,9 +246,11 @@ module tb_nts_noncegen();
       tb_reset  = 1'h0;
       tb_debug  = 1'h1;
 
-      dut_cs = 1'h0;
-      dut_we = 1'h0;
-
+      dut_cs         = 1'h0;
+      dut_we         = 1'h0;
+      dut_address    = 8'h0;
+      dut_write_data = 32'h0;
+      dut_get_nonce  = 1'h0;
     end
   endtask // init_sim
 
@@ -248,21 +299,172 @@ module tb_nts_noncegen();
 
 
   //----------------------------------------------------------------
-  // tc1_reset_state
+  // write_word()
   //
-  // Check that registers in the dut are being correctly reset.
+  // Write the given word to the DUT using the DUT interface.
   //----------------------------------------------------------------
-  task tc1_reset_state;
-    begin : tc1
+  task write_word(input [11 : 0] address,
+                  input [31 : 0] word);
+    begin
+      if (DEBUG)
+        begin
+          $display("*** Writing 0x%08x to 0x%02x.", word, address);
+          $display("");
+        end
+
+      dut_address = address;
+      dut_write_data = word;
+      dut_cs = 1;
+      dut_we = 1;
+      #(1 * CLK_PERIOD);
+      dut_cs = 0;
+      dut_we = 0;
+    end
+  endtask // write_word
+
+
+  //----------------------------------------------------------------
+  // read_word()
+  //
+  // Read a data word from the given address in the DUT.
+  // the word read will be available in the global variable
+  // read_data.
+  //----------------------------------------------------------------
+  task read_word(input [11 : 0]  address);
+    begin
+      dut_address = address;
+      dut_cs = 1;
+      dut_we = 0;
+      #(CLK_PERIOD);
+      read_data = dut_read_data;
+      dut_cs = 0;
+
+      if (DEBUG)
+        begin
+          $display("*** Reading 0x%08x from 0x%02x.", read_data, address);
+          $display("");
+        end
+    end
+  endtask // read_word
+
+
+  //----------------------------------------------------------------
+  // reset_dut()
+  //
+  // Toggle reset to put the DUT into a well known state.
+  //----------------------------------------------------------------
+  task reset_dut;
+    begin
+      #(4 * CLK_PERIOD);
+
+      $display("TB: Resetting dut.");
+      tb_reset = 1;
+      #(2 * CLK_PERIOD);
+      tb_reset = 0;
+      #(2 * CLK_PERIOD);
+    end
+  endtask // reset_dut
+
+
+  //----------------------------------------------------------------
+  // tc1_setup
+  //
+  // Write to API registers to setup the dut.
+  //----------------------------------------------------------------
+  task tc1_setup;
+    begin : tc1_setup
       inc_tc_ctr();
       tb_debug = 1;
-      $display("TC1: Check that the dut registers are correctly reset.");
-      #(2 * CLK_PERIOD);
-      reset_dut();
+      $display("TC1: Setup the state of the dut.");
+
+      write_word(ADDR_KEY0, 32'h11111111);
+      write_word(ADDR_KEY1, 32'h22222222);
+      write_word(ADDR_KEY2, 32'h33333333);
+      write_word(ADDR_KEY3, 32'h44444444);
+
+      write_word(ADDR_CONTEXT0, 32'h01010101);
+      write_word(ADDR_CONTEXT1, 32'h02020202);
+      write_word(ADDR_CONTEXT2, 32'h03030303);
+      write_word(ADDR_CONTEXT3, 32'h04040404);
+      write_word(ADDR_CONTEXT4, 32'h05050505);
+      write_word(ADDR_CONTEXT5, 32'h06060606);
+
+      write_word(ADDR_LABEL, 32'hdeadbeef);
+
       #(2 * CLK_PERIOD);
       tb_debug = 0;
     end
-  endtask // tc1_reset_state
+  endtask // tc1_setup
+
+
+  //----------------------------------------------------------------
+  // tc2_generate
+  //
+  // Setup and then enable the generator. Then generate a few words.
+  //----------------------------------------------------------------
+  task tc2_generate;
+    begin : tc2_generate
+      inc_tc_ctr();
+      tb_debug = 1;
+      $display("TC2: Generate nonce words.");
+
+      write_word(ADDR_KEY0, 32'h11111111);
+      write_word(ADDR_KEY1, 32'h22222222);
+      write_word(ADDR_KEY2, 32'h33333333);
+      write_word(ADDR_KEY3, 32'h44444444);
+
+      write_word(ADDR_CONTEXT0, 32'h01010101);
+      write_word(ADDR_CONTEXT1, 32'h02020202);
+      write_word(ADDR_CONTEXT2, 32'h03030303);
+      write_word(ADDR_CONTEXT3, 32'h04040404);
+      write_word(ADDR_CONTEXT4, 32'h05050505);
+      write_word(ADDR_CONTEXT5, 32'h06060606);
+
+      write_word(ADDR_LABEL, 32'h0000beef);
+
+      write_word(ADDR_CTRL, 32'h1);
+
+
+      #(2 * CLK_PERIOD);
+      $display("TC2: Trying to start generation of first nonce.");
+      dut_get_nonce = 1'h1;
+      #(2 * CLK_PERIOD);
+      dut_get_nonce = 1'h0;
+
+      while(!dut_ready)
+        #(CLK_PERIOD);
+
+      $display("TC2: Generation of first nonce should be completed.");
+
+
+      #(2 * CLK_PERIOD);
+      $display("TC2: Trying to start generation of second nonce.");
+      dut_get_nonce = 1'h1;
+      #(2 * CLK_PERIOD);
+      dut_get_nonce = 1'h0;
+
+      while(!dut_ready)
+        #(CLK_PERIOD);
+
+      $display("TC2: Generation of second nonce should be completed.");
+
+
+      #(2 * CLK_PERIOD);
+      $display("TC2: Trying to start generation of third nonce.");
+      dut_get_nonce = 1'h1;
+      #(2 * CLK_PERIOD);
+      dut_get_nonce = 1'h0;
+
+      while(!dut_ready)
+        #(CLK_PERIOD);
+
+      $display("TC2: Generation of third nonce should be completed.");
+
+      #(10 * CLK_PERIOD);
+
+      tb_debug = 0;
+    end
+  endtask // tc1_setup
 
 
   //----------------------------------------------------------------
@@ -277,6 +479,9 @@ module tb_nts_noncegen();
 
       init_sim();
       reset_dut();
+
+      tc1_setup();
+      tc2_generate();
 
       display_test_results();
 

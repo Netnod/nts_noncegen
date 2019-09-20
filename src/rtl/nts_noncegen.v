@@ -96,14 +96,15 @@ module nts_noncegen(
   localparam DEFAULT_FINAL_ROUNDS = 4'h4;
 
 
-  localparam CTRL_IDLE     = 3'h0;
-  localparam CTRL_M0       = 3'h1;
-  localparam CTRL_M1       = 3'h2;
-  localparam CTRL_M2       = 3'h3;
-  localparam CTRL_M3       = 3'h4;
-  localparam CTRL_FINALIZE = 3'h5;
-  localparam CTRL_DONE     = 3'h6;
-  localparam CTRL_DISABLED = 3'h7;
+  localparam CTRL_IDLE     = 4'h0;
+  localparam CTRL_INIT     = 4'h1;
+  localparam CTRL_M0       = 4'h2;
+  localparam CTRL_M1       = 4'h3;
+  localparam CTRL_M2       = 4'h4;
+  localparam CTRL_M3       = 4'h5;
+  localparam CTRL_FINALIZE = 4'h6;
+  localparam CTRL_DONE     = 4'h7;
+  localparam CTRL_DISABLED = 4'h8;
 
 
   //----------------------------------------------------------------
@@ -115,7 +116,7 @@ module nts_noncegen(
   reg [31 : 0] ctx [0 : 5];
   reg          ctx_we;
 
-  reg [31 : 0] label_reg;
+  reg [15 : 0] label_reg;
   reg          label_we;
 
   reg [31 : 0] ctr0_reg;
@@ -129,6 +130,15 @@ module nts_noncegen(
   reg [3 : 0]  comp_rounds_reg;
   reg [3 : 0]  final_rounds_reg;
 
+  reg [63 : 0] mutate_reg;
+  reg [63 : 0] mutate_new;
+  reg          mutate_we;
+  reg          mutate_set;
+  reg          mutate_rst;
+
+  reg [63 : 0] nonce_reg;
+  reg          nonce_we;
+
   reg          enable_reg;
   reg          enable_we;
 
@@ -136,8 +146,8 @@ module nts_noncegen(
   reg          ready_new;
   reg          ready_we;
 
-  reg [2 : 0]  noncegen_ctrl_reg;
-  reg [2 : 0]  noncegen_ctrl_new;
+  reg [3 : 0]  noncegen_ctrl_reg;
+  reg [3 : 0]  noncegen_ctrl_new;
   reg          noncegen_ctrl_we;
 
 
@@ -168,11 +178,11 @@ module nts_noncegen(
   // Concurrent connectivity for ports etc.
   //----------------------------------------------------------------
   assign read_data  = tmp_read_data;
-  assign nonce      = siphash_word;
+  assign nonce      = nonce_reg;
   assign ready      = ready_reg;
 
   assign siphash_key  = {key[0], key[1], key[2], key[3]};
-  assign siphash_long = 1'h0;
+  assign siphash_long = 1'h1;
 
 
   //----------------------------------------------------------------
@@ -180,7 +190,7 @@ module nts_noncegen(
   //----------------------------------------------------------------
   siphash_core core(
                     .clk(clk),
-                    .reset_n(areset),
+                    .areset(areset),
                     .initalize(siphash_initalize),
                     .compress(siphash_compress),
                     .finalize(siphash_finalize),
@@ -213,13 +223,15 @@ module nts_noncegen(
           for (i = 0 ; i < 6 ; i = i + 1)
             ctx[i] <= 32'h0;
 
-          label_reg         <= 32'h0;
+          label_reg         <= 16'h0;
           ctr0_reg          <= 32'h0;
           ctr1_reg          <= 16'h0;
           comp_rounds_reg   <= DEFAULT_COMP_ROUNDS;
           final_rounds_reg  <= DEFAULT_FINAL_ROUNDS;
           enable_reg        <= 1'h0;
-          ready_reg         <= 1'h1;
+          mutate_reg        <= 64'h0;
+          nonce_reg         <= 64'h0;
+          ready_reg         <= 1'h0;
           noncegen_ctrl_reg <= CTRL_IDLE;
         end
 
@@ -232,7 +244,7 @@ module nts_noncegen(
             ctx[address[2 : 0]] <= write_data;
 
           if (label_we)
-            label_reg <= write_data;
+            label_reg <= write_data[15 : 0];
 
           if (ctr0_we)
             ctr0_reg <= ctr0_new;
@@ -245,6 +257,12 @@ module nts_noncegen(
               comp_rounds_reg  <= write_data[CONFIG_COMP_BIT3 : CONFIG_COMP_BIT0];
               final_rounds_reg <= write_data[CONFIG_FINAL_BIT3 : CONFIG_FINAL_BIT0];
             end
+
+          if (mutate_we)
+            mutate_reg <= mutate_new;
+
+          if (nonce_we)
+            nonce_reg <= siphash_word[127 : 64];
 
           if (ready_we)
             ready_reg <= ready_new;
@@ -290,7 +308,7 @@ module nts_noncegen(
                 key_we = 1'h1;
 
               if ((address >= ADDR_CONTEXT0) && (address <= ADDR_CONTEXT5))
-                key_we = 1'h1;
+                ctx_we = 1'h1;
             end // if (we)
 
           else
@@ -301,7 +319,7 @@ module nts_noncegen(
                 ADDR_VERSION: tmp_read_data = CORE_VERSION;
                 ADDR_CTRL:    tmp_read_data = {31'h0, enable_reg};
                 ADDR_STATUS:  tmp_read_data = {31'h0, ready_reg};
-                ADDR_LABEL:   tmp_read_data = label_reg;
+                ADDR_LABEL:   tmp_read_data = {16'h0, label_reg};
                 ADDR_CTR0:    tmp_read_data = ctr0_reg;
                 ADDR_CTR1:    tmp_read_data = {16'h0, ctr1_reg};
                 default:
@@ -318,13 +336,30 @@ module nts_noncegen(
         end
     end // api
 
+
   //----------------------------------------------------------------
-  // message_mux
+  // message_logic
+  // Generate the message words including mutation.
   //----------------------------------------------------------------
   always @*
-    begin : message_mux
+    begin : message_logic
+      mutate_new = 64'h0;
+      mutate_we  = 1'h0;
+
+      if (mutate_set)
+        begin
+          mutate_new = siphash_word[63 : 0];
+          mutate_we  = 1'h1;
+        end
+
+      if (mutate_rst)
+        begin
+          mutate_new = 64'h0;
+          mutate_we  = 1'h1;
+        end
+
       case (message_ctrl)
-        0: siphash_mi = {ctx[0], ctx[1]};
+        0: siphash_mi = {ctx[0], ctx[1]} ^ mutate_reg;
         1: siphash_mi = {ctx[2], ctx[3]};
         2: siphash_mi = {label_reg, ctr1_reg, ctr0_reg};
         3: siphash_mi = {ctx[4], ctx[4]};
@@ -381,6 +416,9 @@ module nts_noncegen(
       siphash_compress  = 1'h0;
       siphash_finalize  = 1'h0;
       message_ctrl      = 2'h0;
+      mutate_rst        = 1'h0;
+      mutate_set        = 1'h0;
+      nonce_we          = 1'h0;
       ready_new         = 1'h0;
       ready_we          = 1'h0;
       noncegen_ctrl_new = CTRL_IDLE;
@@ -400,13 +438,19 @@ module nts_noncegen(
               begin
                 if (get_nonce)
                   begin
-                    siphash_initalize = 1'h1;
                     ready_new         = 1'h0;
                     ready_we          = 1'h1;
-                    noncegen_ctrl_new = CTRL_M0;
+                    noncegen_ctrl_new = CTRL_INIT;
                     noncegen_ctrl_we  = 1'h1;
                   end
               end
+          end
+
+        CTRL_INIT:
+          begin
+            siphash_initalize = 1'h1;
+            noncegen_ctrl_new = CTRL_M0;
+            noncegen_ctrl_we  = 1'h1;
           end
 
         CTRL_M0:
@@ -476,8 +520,10 @@ module nts_noncegen(
           begin
             if (siphash_ready)
               begin
-                ready_new = 1'h1;
-                ready_we  = 1'h1;
+                mutate_set = 1'h1;
+                nonce_we   = 1'h1;
+                ready_new  = 1'h1;
+                ready_we   = 1'h1;
 
                 if (!get_nonce)
                   begin
@@ -492,6 +538,7 @@ module nts_noncegen(
           begin
             if (enable_reg)
               begin
+                mutate_rst        = 1'h1;
                 ready_new         = 1'h1;
                 ready_we          = 1'h1;
                 noncegen_ctrl_new = CTRL_IDLE;
