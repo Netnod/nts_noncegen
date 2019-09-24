@@ -42,13 +42,13 @@ module tb_nts_noncegen();
   //----------------------------------------------------------------
   // Internal constant and parameter definitions.
   //----------------------------------------------------------------
-  localparam DEBUG     = 1;
+  localparam DEBUG     = 0;
   localparam DEBUG_MEM = 1;
 
   localparam CLK_HALF_PERIOD = 1;
   localparam CLK_PERIOD      = 2 * CLK_HALF_PERIOD;
 
-  localparam TIMEOUT_CYCLES = 10000;
+  localparam TIMEOUT_CYCLES = 100000000;
 
 
   localparam ADDR_NAME0         = 8'h00;
@@ -464,7 +464,69 @@ module tb_nts_noncegen();
 
       tb_debug = 0;
     end
-  endtask // tc1_setup
+  endtask // tc2_generate
+
+
+  //----------------------------------------------------------------
+  // tc3_dump_data
+  //
+  // Setup and then enable the generator. Then generate a few words.
+  //----------------------------------------------------------------
+  task tc3_dump_data;
+    begin : tc3_dump_data
+      integer num_nonces;
+      integer fd;
+      integer i;
+
+      tb_debug = 0;
+      num_nonces = 10000;
+
+      inc_tc_ctr();
+      $display("TC3: Dump %d nonces", num_nonces);
+
+      // Open file for writing.
+      fd = $fopen ("noncedata.bin", "wb");
+
+      // Set key, label context.
+      write_word(ADDR_KEY0, 32'h11111111);
+      write_word(ADDR_KEY1, 32'h22222222);
+      write_word(ADDR_KEY2, 32'h33333333);
+      write_word(ADDR_KEY3, 32'h44444444);
+
+      write_word(ADDR_CONTEXT0, 32'h01010101);
+      write_word(ADDR_CONTEXT1, 32'h02020202);
+      write_word(ADDR_CONTEXT2, 32'h03030303);
+      write_word(ADDR_CONTEXT3, 32'h04040404);
+      write_word(ADDR_CONTEXT4, 32'h05050505);
+      write_word(ADDR_CONTEXT5, 32'h06060606);
+
+      write_word(ADDR_LABEL, 32'h0000beef);
+
+      write_word(ADDR_CTRL, 32'h1);
+
+
+      for (i = 0 ; i < num_nonces ; i = i + 1)
+        begin
+          dut_get_nonce = 1'h1;
+          #(2 * CLK_PERIOD);
+          dut_get_nonce = 1'h0;
+
+          while(!dut_ready)
+            #(CLK_PERIOD);
+
+          $fwrite(fd, "%c%c%c%c%c%c%c%c",
+                  dut_nonce[63 : 56], dut_nonce[55 : 48],
+                  dut_nonce[47 : 40], dut_nonce[39 : 32],
+                  dut_nonce[31 : 24], dut_nonce[23 : 16],
+                  dut_nonce[15 : 08], dut_nonce[07 : 00]);
+
+          if (i % 1000 == 0)
+            $display("Generated nonce %d", i);
+        end
+      $fclose(fd);
+      $display("TC3: Dump %d nonces completed.", num_nonces);
+    end
+  endtask // tc3_dump_data
 
 
   //----------------------------------------------------------------
@@ -480,8 +542,9 @@ module tb_nts_noncegen();
       init_sim();
       reset_dut();
 
-      tc1_setup();
-      tc2_generate();
+//      tc1_setup();
+//      tc2_generate();
+      tc3_dump_data();
 
       display_test_results();
 
