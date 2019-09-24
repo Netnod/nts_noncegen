@@ -479,7 +479,7 @@ module tb_nts_noncegen();
       integer i;
 
       tb_debug = 0;
-      num_nonces = 10000;
+      num_nonces = 1000000;
 
       inc_tc_ctr();
       $display("TC3: Dump %d nonces", num_nonces);

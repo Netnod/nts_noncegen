@@ -362,7 +362,7 @@ module nts_noncegen(
         0: siphash_mi = {ctx[0], ctx[1]} ^ mutate_reg;
         1: siphash_mi = {ctx[2], ctx[3]};
         2: siphash_mi = {label_reg, ctr1_reg, ctr0_reg};
-        3: siphash_mi = {ctx[4], ctx[4]};
+        3: siphash_mi = {ctx[4], ctx[5]};
         default:
           begin
           end
