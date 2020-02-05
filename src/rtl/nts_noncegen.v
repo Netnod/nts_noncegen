@@ -546,7 +546,7 @@ module nts_noncegen(
             if (enable_reg)
               begin
                 mutate_rst        = 1'h1;
-                ready_new         = 1'h1;
+                ready_new         = 1'h0;
                 ready_we          = 1'h1;
                 noncegen_ctrl_new = CTRL_IDLE;
                 noncegen_ctrl_we  = 1'h1;
