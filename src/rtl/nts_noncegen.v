@@ -521,17 +521,15 @@ module nts_noncegen(
               begin
                 if (siphash_word_valid)
                   begin
+                    ctr_inc    = 1'h1;
                     mutate_set = 1'h1;
                     nonce_we   = 1'h1;
                     ready_new  = 1'h1;
                     ready_we   = 1'h1;
 
-                    if (!get_nonce)
-                      begin
-                       ctr_inc           = 1'h1;
-                       noncegen_ctrl_new = CTRL_IDLE;
-                       noncegen_ctrl_we  = 1'h1;
-                      end
+                    noncegen_ctrl_new = CTRL_IDLE;
+                    noncegen_ctrl_we  = 1'h1;
+
                   end
                 else //siphash_word_valid false; unexpected error condition
                   begin
