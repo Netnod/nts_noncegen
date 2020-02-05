@@ -87,9 +87,8 @@ module nts_noncegen(
   localparam ADDR_CONTEXT5      = 8'h45;
 
 
-  localparam CORE_NAME0   = 32'h6b65795f; // "key_"
-  localparam CORE_NAME1   = 32'h6d656d20; // "mem "
-  localparam CORE_VERSION = 32'h302e3130; // "0.10"
+  localparam CORE_NAME    = 64'h6e6f6e636567656e; // noncegen
+  localparam CORE_VERSION = 32'h302e3131; // "0.11"
 
 
   localparam DEFAULT_COMP_ROUNDS  = 4'h2;
@@ -314,8 +313,8 @@ module nts_noncegen(
           else
             begin
               case (address)
-                ADDR_NAME0:   tmp_read_data = CORE_NAME0;
-                ADDR_NAME1:   tmp_read_data = CORE_NAME1;
+                ADDR_NAME0:   tmp_read_data = CORE_NAME[63:32];
+                ADDR_NAME1:   tmp_read_data = CORE_NAME[31:0];
                 ADDR_VERSION: tmp_read_data = CORE_VERSION;
                 ADDR_CTRL:    tmp_read_data = {31'h0, enable_reg};
                 ADDR_STATUS:  tmp_read_data = {31'h0, ready_reg};
@@ -520,15 +519,23 @@ module nts_noncegen(
           begin
             if (siphash_ready)
               begin
-                mutate_set = 1'h1;
-                nonce_we   = 1'h1;
-                ready_new  = 1'h1;
-                ready_we   = 1'h1;
-
-                if (!get_nonce)
+                if (siphash_word_valid)
                   begin
-                    ctr_inc           = 1'h1;
-                    noncegen_ctrl_new = CTRL_IDLE;
+                    mutate_set = 1'h1;
+                    nonce_we   = 1'h1;
+                    ready_new  = 1'h1;
+                    ready_we   = 1'h1;
+
+                    if (!get_nonce)
+                      begin
+                       ctr_inc           = 1'h1;
+                       noncegen_ctrl_new = CTRL_IDLE;
+                       noncegen_ctrl_we  = 1'h1;
+                      end
+                  end
+                else //siphash_word_valid false; unexpected error condition
+                  begin
+                    noncegen_ctrl_new = CTRL_DISABLED;
                     noncegen_ctrl_we  = 1'h1;
                   end
               end
