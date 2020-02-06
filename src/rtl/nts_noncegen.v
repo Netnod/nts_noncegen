@@ -52,6 +52,7 @@ module nts_noncegen(
                     // Client access
                     input wire           get_nonce,
                     output wire [63 : 0] nonce,
+                    output wire          nonce_valid,
                     output wire          ready
                    );
 
@@ -138,6 +139,10 @@ module nts_noncegen(
   reg [63 : 0] nonce_reg;
   reg          nonce_we;
 
+  reg          nonce_valid_reg;
+  reg          nonce_valid_new;
+  reg          nonce_valid_we;
+
   reg          enable_reg;
   reg          enable_we;
 
@@ -176,9 +181,10 @@ module nts_noncegen(
   //----------------------------------------------------------------
   // Concurrent connectivity for ports etc.
   //----------------------------------------------------------------
-  assign read_data  = tmp_read_data;
-  assign nonce      = nonce_reg;
-  assign ready      = ready_reg;
+  assign read_data   = tmp_read_data;
+  assign nonce       = nonce_reg;
+  assign nonce_valid = nonce_valid_reg;
+  assign ready       = ready_reg;
 
   assign siphash_key  = {key[0], key[1], key[2], key[3]};
   assign siphash_long = 1'h1;
@@ -230,6 +236,7 @@ module nts_noncegen(
           enable_reg        <= 1'h0;
           mutate_reg        <= 64'h0;
           nonce_reg         <= 64'h0;
+          nonce_valid_reg   <= 1'h0;
           ready_reg         <= 1'h0;
           noncegen_ctrl_reg <= CTRL_IDLE;
         end
@@ -262,6 +269,9 @@ module nts_noncegen(
 
           if (nonce_we)
             nonce_reg <= siphash_word[127 : 64];
+
+          if (nonce_valid_we)
+            nonce_valid_reg <= nonce_valid_new;
 
           if (ready_we)
             ready_reg <= ready_new;
@@ -418,6 +428,8 @@ module nts_noncegen(
       mutate_rst        = 1'h0;
       mutate_set        = 1'h0;
       nonce_we          = 1'h0;
+      nonce_valid_new   = 1'h0;
+      nonce_valid_we    = 1'h0;
       ready_new         = 1'h0;
       ready_we          = 1'h0;
       noncegen_ctrl_new = CTRL_IDLE;
@@ -430,6 +442,8 @@ module nts_noncegen(
               begin
                 ready_new         = 1'h0;
                 ready_we          = 1'h1;
+                nonce_valid_new   = 1'h0;
+                nonce_valid_we    = 1'h1;
                 noncegen_ctrl_new = CTRL_DISABLED;
                 noncegen_ctrl_we  = 1'h1;
               end
@@ -439,6 +453,8 @@ module nts_noncegen(
                   begin
                     ready_new         = 1'h0;
                     ready_we          = 1'h1;
+                    nonce_valid_new   = 1'h0;
+                    nonce_valid_we    = 1'h1;
                     noncegen_ctrl_new = CTRL_INIT;
                     noncegen_ctrl_we  = 1'h1;
                   end
@@ -521,20 +537,18 @@ module nts_noncegen(
               begin
                 if (siphash_word_valid)
                   begin
-                    ctr_inc    = 1'h1;
-                    mutate_set = 1'h1;
-                    nonce_we   = 1'h1;
-                    ready_new  = 1'h1;
-                    ready_we   = 1'h1;
-
+                    ctr_inc           = 1'h1;
+                    mutate_set        = 1'h1;
+                    nonce_we          = 1'h1;
+                    nonce_valid_new   = 1'h1;
+                    nonce_valid_we    = 1'h1;
+                    ready_new         = 1'h1;
+                    ready_we          = 1'h1;
                     noncegen_ctrl_new = CTRL_IDLE;
                     noncegen_ctrl_we  = 1'h1;
-
                   end
-                else //siphash_word_valid false; unexpected error condition
+                else
                   begin
-                    noncegen_ctrl_new = CTRL_DISABLED;
-                    noncegen_ctrl_we  = 1'h1;
                   end
               end
           end
@@ -544,7 +558,9 @@ module nts_noncegen(
             if (enable_reg)
               begin
                 mutate_rst        = 1'h1;
-                ready_new         = 1'h0;
+                nonce_valid_new   = 1'h0;
+                nonce_valid_we    = 1'h1;
+                ready_new         = 1'h1;
                 ready_we          = 1'h1;
                 noncegen_ctrl_new = CTRL_IDLE;
                 noncegen_ctrl_we  = 1'h1;
