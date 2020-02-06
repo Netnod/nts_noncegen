@@ -106,6 +106,7 @@ module tb_nts_noncegen();
   wire [31 : 0] dut_read_data;
   reg           dut_get_nonce;
   wire [63 : 0] dut_nonce;
+  wire          dut_nonce_valid;
   wire          dut_ready;
 
 
@@ -122,6 +123,7 @@ module tb_nts_noncegen();
                    .read_data(dut_read_data),
                    .get_nonce(dut_get_nonce),
                    .nonce(dut_nonce),
+                   .nonce_valid(dut_nonce_valid),
                    .ready(dut_ready)
                   );
 
@@ -175,8 +177,8 @@ module tb_nts_noncegen();
                dut_cs, dut_we, dut_address);
       $display("read_data: 0x%08x, write_data: 0x%08x",
                dut_read_data, dut_write_data);
-      $display("get_nonce: 0x%01x, nonce: 0x%016x",
-               dut_get_nonce, dut_nonce);
+      $display("get_nonce: 0x%01x, nonce_valid: 0x%01x, nonce: 0x%016x",
+               dut_get_nonce, dut_nonce_valid, dut_nonce);
       $display("ready: 0x%01x", dut_ready);
       $display("");
 
@@ -479,7 +481,7 @@ module tb_nts_noncegen();
       integer i;
 
       tb_debug = 0;
-      num_nonces = 1000000;
+      num_nonces = 10000;
 
       inc_tc_ctr();
       $display("TC3: Dump %d nonces", num_nonces);
@@ -514,11 +516,8 @@ module tb_nts_noncegen();
           while(!dut_ready)
             #(CLK_PERIOD);
 
-          $fwrite(fd, "%c%c%c%c%c%c%c%c",
-                  dut_nonce[63 : 56], dut_nonce[55 : 48],
-                  dut_nonce[47 : 40], dut_nonce[39 : 32],
-                  dut_nonce[31 : 24], dut_nonce[23 : 16],
-                  dut_nonce[15 : 08], dut_nonce[07 : 00]);
+          $fwrite(fd, "%u", dut_nonce[63 : 32]);
+          $fwrite(fd, "%u", dut_nonce[31 : 00]);
 
           if (i % 1000 == 0)
             $display("Generated nonce %d", i);
