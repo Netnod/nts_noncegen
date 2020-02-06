@@ -88,8 +88,9 @@ module nts_noncegen(
   localparam ADDR_CONTEXT5      = 8'h45;
 
 
-  localparam CORE_NAME    = 64'h6e6f6e636567656e; // noncegen
-  localparam CORE_VERSION = 32'h302e3131; // "0.11"
+  localparam CORE_NAME0   = 32'h6e6f6e63; // nonc
+  localparam CORE_NAME1   = 32'h6567656e; // egen
+  localparam CORE_VERSION = 32'h302e3132; // "0.12"
 
 
   localparam DEFAULT_COMP_ROUNDS  = 4'h2;
@@ -323,8 +324,8 @@ module nts_noncegen(
           else
             begin
               case (address)
-                ADDR_NAME0:   tmp_read_data = CORE_NAME[63:32];
-                ADDR_NAME1:   tmp_read_data = CORE_NAME[31:0];
+                ADDR_NAME0:   tmp_read_data = CORE_NAME0;
+                ADDR_NAME1:   tmp_read_data = CORE_NAME1;
                 ADDR_VERSION: tmp_read_data = CORE_VERSION;
                 ADDR_CTRL:    tmp_read_data = {31'h0, enable_reg};
                 ADDR_STATUS:  tmp_read_data = {31'h0, ready_reg};
